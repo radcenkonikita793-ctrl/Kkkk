@@ -28,16 +28,16 @@ jobs:
 
       - name: Download Release Asset (Pure API Method)
         run: |
-          echo "Ищем Aerdow1.0.zip в самом свежем релизе (включая черновики)..."
+          echo "Ищем aerdow1.0.zip в самом свежем релизе (включая черновики)..."
           
           # Получаем системную ссылку на скачивание файла напрямую из API GitHub
           ASSET_URL=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             "https://api.github.com/repos/${{ github.repository }}/releases" | \
-            jq -r '.[0].assets[] | select(.name=="Aerdow1.0.zip") | .url')
+            jq -r '.[0].assets[] | select(.name=="aerdow1.0.zip") | .url')
             
           if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" == "null" ]; then
-            echo "Критическая ошибка: Файл Aerdow1.0.zip не найден ни в одном из релизов!"
-            echo "Убедитесь, что архив в релизах называется ровно Aerdow1.0.zip"
+            echo "Критическая ошибка: Файл aerdow1.0.zip не найден ни в одном из релизов!"
+            echo "Убедитесь, что архив в релизах называется ровно aerdow1.0.zip"
             exit 1
           fi
           
@@ -46,16 +46,16 @@ jobs:
           # Скачиваем бинарный файл по системной ссылке
           curl -L -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
                -H "Accept: application/octet-stream" \
-               -o Aerdow1.0.zip "$ASSET_URL"
+               -o aerdow1.0.zip "$ASSET_URL"
           
           echo "Информация о скачанном файле:"
-          ls -lh Aerdow1.0.zip
+          ls -lh aerdow1.0.zip
 
       - name: Extract Project Archive
         run: |
           echo "Распаковываем архив..."
           mkdir -p raw_project
-          unzip -qo Aerdow1.0.zip -d raw_project/
+          unzip -qo aerdow1.0.zip -d raw_project/
 
           mkdir -p workspace
 
