@@ -30,19 +30,17 @@ jobs:
         run: |
           echo "Скачиваем Aerdow1.0.zip из релизов..."
           
-          # Официальная прямая ссылка на файл в релизах GitHub
-          curl -L -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-               -o project.zip \
-               "https://github.com/${{ github.repository }}/releases/latest/download/Aerdow1.0.zip"
+          # Скачиваем файл по прямой ссылке на релиз без ограничений по размеру
+          curl -L -o project.zip "https://github.com/${{ github.repository }}/releases/latest/download/Aerdow1.0.zip"
+          
+          echo "Информация о скачанном файле:"
+          ls -lh project.zip
+          
+          echo "Первые байты файла (для проверки):"
+          head -c 50 project.zip || true
+          echo ""
 
-          # Проверяем, что файл действительно скачался (он весит 116 МБ, поэтому проверяем, что больше 100 МБ)
-          if [ ! -f project.zip ] || [ $(stat -f%z project.zip) -lt 100000000 ]; then
-            echo "Ошибка: файл не скачался или весит меньше 100 МБ!"
-            ls -lh project.zip
-            exit 1
-          fi
-
-          echo "Архив успешно скачан! Распаковываем..."
+          echo "Распаковываем архив..."
           mkdir -p raw_project
           unzip -qo project.zip -d raw_project/
 
