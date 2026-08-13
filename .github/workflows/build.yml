@@ -28,8 +28,8 @@ jobs:
 
       - name: Download Project Archive from Release
         run: |
-          # Автоматически находит любую прямую ссылку на .zip файл в последнем релизе
-          DOWNLOAD_URL=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases/latest | grep "browser_download_url.*zip" | cut -d '"' -f 4)
+          DOWNLOAD_URL="ТУТ_ВСТАВЬТЕ_ВАШУ_ССЫЛКУ_ИЗ_РЕЛИЗОВ"
+          
           echo "Скачиваем по ссылке: $DOWNLOAD_URL"
           curl -L -o project.zip "$DOWNLOAD_URL"
           
