@@ -28,16 +28,28 @@ jobs:
 
       - name: Download Project Archive from Release
         run: |
-          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/v1.0/Aerdow1.0.zip"
+          # Используем официальный GitHub API для безопасного и точного скачивания файла из релиза
+          DOWNLOAD_URL="https://api.github.com/repos/${{ github.repository }}/releases/assets/$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/${{ github.repository }}/releases/latest | grep -B 2 -A 2 "Aerdow1.0.zip" | grep "id" | head -n 1 | tr -d ' ,:\"id')"
           
-          echo "Скачиваем по ссылке: $DOWNLOAD_URL"
-          curl -L -o project.zip "$DOWNLOAD_URL"
+          echo "Скачиваем архив..."
+          curl -L -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+               -H "Accept: application/octet-stream" \
+               -o project.zip "$DOWNLOAD_URL"
           
-          if [ ! -f project.zip ] || [ $(stat -f%z project.zip) -lt 1000000 ]; then
-            echo "Ошибка: архив не скачался или файл слишком мал!"
+          # Если через API не подхватило ID, качаем по прямой ссылке с токеном
+          if [ ! -f project.zip ] || [ $(stat -f%z project.zip) -lt 100000000 ]; then
+            echo "Пробуем прямую ссылку..."
+            curl -L -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                 -o project.zip "https://github.com/${{ github.repository }}/releases/download/v1.0/Aerdow1.0.zip"
+          fi
+          
+          if [ ! -f project.zip ] || [ $(stat -f%z project.zip) -lt 100000000 ]; then
+            echo "Ошибка: файл не скачался или весит меньше 100 МБ!"
+            ls -lh project.zip
             exit 1
           fi
           
+          echo "Распаковываем архив весом 116 МБ..."
           mkdir workspace
           unzip -qo project.zip -d workspace/
 
