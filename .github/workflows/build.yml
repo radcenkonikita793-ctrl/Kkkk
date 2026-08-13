@@ -1,83 +1,145 @@
-name: Build iOS IPA
+name: Production iOS IPA Build Pipeline
 
 on:
   workflow_dispatch:
+    inputs:
+      clean_cache:
+        description: 'Принудительно очистить кэш движка'
+        required: false
+        type: boolean
+        default: false
 
 env:
   GODOT_VERSION: "4.3-stable"
   GODOT_VERSION_DIR: "4.3.stable"
+  PROJECT_ZIP_NAME: "Aerdow1.0.zip"
+  APP_SCHEME: "Aerdrom"
 
 jobs:
-  build-unsigned-ipa:
-    name: Build iOS IPA
+  environment-diagnostics:
+    name: 🔍 1. Проверка окружения и зависимостей
     runs-on: macos-14
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Godot & Templates
+      - name: System Audit & Tooling Verification
         run: |
+          echo "=== ДИАГНОСТИКА СИСТЕМЫ ==="
+          uname -a
+          sw_vers
+          xcodebuild -version
+          echo "Доступный диск:"
+          df -h
+
+      - name: Verify Release Assets Presence
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Проверка наличия файла $PROJECT_ZIP_NAME в релизах..."
+          gh release view --json assets | grep -q "$PROJECT_ZIP_NAME" && echo "Файл найден!" || { echo "Файл не найден в релизе!"; exit 1; }
+
+  build-and-export:
+    name: ✈️ 2. Сборка и компиляция IPA
+    needs: environment-diagnostics
+    runs-on: macos-14
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Cache Godot Engine & Templates
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: |
+            /Applications/Godot.app
+            ~/Library/Application Support/Godot/export_templates/
+          key: godot-${{ env.GODOT_VERSION }}-macos
+
+      - name: Install Godot Engine & Export Templates
+        if: steps.cache-godot.outputs.cache-hit != 'true' || inputs.clean_cache == true
+        run: |
+          echo "Кэш не найден. Загрузка движка Godot ${{ env.GODOT_VERSION }}..."
           curl -L -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_macos.universal.zip"
           unzip -q godot.zip
           mv Godot.app /Applications/Godot.app
-          
+          rm godot.zip
+
+          echo "Установка шаблонов экспорта..."
           mkdir -p "$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION_DIR}"
           curl -L -o templates.tpz "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_export_templates.tpz"
           unzip -q templates.tpz
           mv templates/ios.zip "$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION_DIR}/ios.zip"
+          rm templates.tpz
 
-      - name: Download from Releases & Extract
+      - name: Safe Download Project Asset
+        uses: dsaltares/fetch-gh-release-asset@master
+        with:
+          version: 'latest'
+          file: ${{ env.PROJECT_ZIP_NAME }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Unpack & Reconstruct Project Workspace
         run: |
-          echo "Получаем ссылку на релиз с авторизацией..."
-          API_URL="https://api.github.com/repos/${{ github.repository }}/releases/latest"
+          echo "Проверка целостности архива..."
+          ls -lh "${{ env.PROJECT_ZIP_NAME }}"
           
-          # Вытаскиваем прямую ссылку на ассет через API с Bearer токеном
-          DOWNLOAD_URL=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "$API_URL" | grep -A 5 "Aerdow1.0.zip" | grep "browser_download_url" | cut -d '"' -f 4)
-          
-          if [ -z "$DOWNLOAD_URL" ]; then
-            DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/v1.0/Aerdow1.0.zip"
-          fi
-          
-          echo "Ссылка получена. Скачиваем файл..."
-          # Используем -L для обработки редиректов с сохранением авторизации через header
-          curl -L -s --header "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-               --header "Accept: application/octet-stream" \
-               "$DOWNLOAD_URL" -o project.zip
-          
-          echo "Информация о скачанном файле:"
-          ls -lh project.zip
+          mkdir -p raw_project workspace
+          unzip -qo "${{ env.PROJECT_ZIP_NAME }}" -d raw_project/
 
-          echo "Распаковываем архив..."
-          mkdir -p raw_project
-          unzip -qo project.zip -d raw_project/
-
-          mkdir -p workspace
-
-          if [ -f raw_project/project.godot ]; then
-            cp -R raw_project/* workspace/
-          else
-            INNER_DIR=$(find raw_project -maxdepth 2 -name "project.godot" -exec dirname {} \;)
-            cp -R "$INNER_DIR"/* workspace/
+          # Динамический поиск файла project.godot
+          PROJECT_ROOT=$(find raw_project -name "project.godot" -exec dirname {} \; | head -n 1)
+          
+          if [ -z "$PROJECT_ROOT" ]; then
+            echo "КРИТИЧЕСКАЯ ОШИБКА: Файл project.godot не найден в архиве!"
+            exit 1
           fi
 
-          echo "Готово! Содержимое workspace:"
+          echo "Найден корень проекта: $PROJECT_ROOT"
+          cp -R "$PROJECT_ROOT"/* workspace/
+          
+          echo "Содержимое workspace:"
           ls -la workspace/
 
-      - name: Export Xcode Project
+      - name: Export Xcode Project via Headless Godot
         run: |
           mkdir -p workspace/build/ios
-          /Applications/Godot.app/Contents/MacOS/Godot --path workspace --headless --export-release "iOS" "$PWD/workspace/build/ios/Aerdrom.xcodeproj"
+          echo "Экспорт в Xcode..."
+          /Applications/Godot.app/Contents/MacOS/Godot \
+            --path workspace \
+            --headless \
+            --export-release "iOS" "$PWD/workspace/build/ios/${{ env.APP_SCHEME }}.xcodeproj"
 
-      - name: Build IPA
+      - name: Compile Unsigned Xcode Archive
         run: |
           cd workspace/build/ios
-          xcodebuild archive -project Aerdrom.xcodeproj -scheme Aerdrom -sdk iphoneos -configuration Release -archivePath build/Aerdrom.xcarchive CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" PROVISIONING_PROFILE_SPECIFIER=""
-          mkdir -p Payload
-          cp -r build/Aerdrom.xcarchive/Products/Applications/*.app Payload/
-          zip -r Aerdrom.ipa Payload/
+          
+          xcodebuild archive \
+            -project "${{ env.APP_SCHEME }}.xcodeproj" \
+            -scheme "${{ env.APP_SCHEME }}" \
+            -sdk iphoneos \
+            -configuration Release \
+            -archivePath "build/${{ env.APP_SCHEME }}.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            COMPILER_INDEX_STORE_ENABLE=NO
 
-      - name: Upload IPA
+      - name: Package Payload into IPA
+        run: |
+          cd workspace/build/ios
+          mkdir -p Payload
+          cp -r "build/${{ env.APP_SCHEME }}.xcarchive/Products/Applications/"*.app Payload/
+          zip -r -y "${{ env.APP_SCHEME }}_unsigned.ipa" Payload/
+          
+          echo "Итоговый размер IPA:"
+          ls -lh "${{ env.APP_SCHEME }}_unsigned.ipa"
+
+      - name: Upload Final IPA Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Aerdrom-iOS-IPA
-          path: workspace/build/ios/Aerdrom.ipa
+          name: Aerdrom-iOS-IPA-Release
+          path: workspace/build/ios/${{ env.APP_SCHEME }}_unsigned.ipa
+          retention-days: 7
+          compression-level: 6
