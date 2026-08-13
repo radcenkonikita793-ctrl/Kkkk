@@ -28,7 +28,17 @@ jobs:
 
       - name: Download Project Archive
         run: |
-          curl -L -o project.zip "https://github.com/${{ github.repository }}/releases/download/v1.0/aerdow1.0.zip"
+          # Пытаемся скачать файл с учетом того, что имя может быть с заглавной буквы
+          # Замените 'Aerdow1.0.zip' на ТОЧНОЕ имя вашего файла в релизах
+          curl -L -o project.zip "https://github.com/${{ github.repository }}/releases/download/v1.0/Aerdow1.0.zip"
+          
+          # Проверка: если файл меньше 1МБ, значит скачалась ошибка, а не игра
+          if [ $(stat -f%z project.zip) -lt 1000000 ]; then
+            echo "Ошибка: скачался не архив, а страница ошибки!"
+            cat project.zip
+            exit 1
+          fi
+          
           mkdir workspace
           unzip -qo project.zip -d workspace/
 
