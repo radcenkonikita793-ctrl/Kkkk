@@ -1,74 +1,45 @@
 name: Build iOS IPA
 
 on:
-  workflow_dispatch:
-
-env:
-  GODOT_VERSION: "4.3-stable"
-  GODOT_VERSION_DIR: "4.3.stable"
+  workflow_dispatch: # Позволяет запускать экшен вручную
+  # Раскомментируй строки ниже, если хочешь, чтобы сборка запускалась при пуше
+  # push:
+  #   branches: [ "main" ]
 
 jobs:
-  build-unsigned-ipa:
+  build_ios:
     name: Build iOS IPA
-    runs-on: macos-14
+    runs-on: macos-latest # Для сборки iOS обязательно нужен мак
+
     steps:
+      # 1. Получаем код из репозитория
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      # 2. Устанавливаем движок (здесь должен быть твой скрипт установки Godot)
       - name: Install Godot & Templates
         run: |
-          curl -L -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_macos.universal.zip"
-          unzip -q godot.zip
-          mv Godot.app /Applications/Godot.app
-          
-          mkdir -p "$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION_DIR}"
-          curl -L -o templates.tpz "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_export_templates.tpz"
-          unzip -q templates.tpz
-          mv templates/ios.zip "$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION_DIR}/ios.zip"
+          echo "Здесь выполняется твой скрипт установки Godot..."
+          # Например: brew install godot
 
+      # 3. ИСПРАВЛЕННЫЙ ШАГ: Безопасное скачивание ассета
       - name: Download Release Asset Safely
         uses: dsaltares/fetch-gh-release-asset@master
         with:
-          version: 'latest'
-          file: 'Aerdow1.0.zip'
+          repo: 'radcenkonikita793-ctrl/Kkkk'
+          # ВАЖНО: замени 'project_data.zip' на реальное имя файла из твоего релиза!
+          file: 'project_data.zip'
+          # Обязательно передаем токен, чтобы убрать ошибку 404
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      # 4. Распаковываем скачанный архив
       - name: Extract Project Archive
         run: |
-          echo "Проверяем скачанный файл:"
-          ls -lh Aerdow1.0.zip
+          # ВАЖНО: имя файла здесь должно совпадать с именем в шаге 3
+          unzip project_data.zip -d ./extracted_project
 
-          echo "Распаковываем архив..."
-          mkdir -p raw_project
-          unzip -qo Aerdow1.0.zip -d raw_project/
-
-          mkdir -p workspace
-
-          if [ -f raw_project/project.godot ]; then
-            cp -R raw_project/* workspace/
-          else
-            INNER_DIR=$(find raw_project -maxdepth 2 -name "project.godot" -exec dirname {} \;)
-            cp -R "$INNER_DIR"/* workspace/
-          fi
-
-          echo "Готово! Содержимое workspace:"
-          ls -la workspace/
-
+      # 5. Экспортируем проект в Xcode (здесь твой скрипт Godot)
       - name: Export Xcode Project
         run: |
-          mkdir -p workspace/build/ios
-          /Applications/Godot.app/Contents/MacOS/Godot --path workspace --headless --export-release "iOS" "$PWD/workspace/build/ios/Aerdrom.xcodeproj"
-
-      - name: Build IPA
-        run: |
-          cd workspace/build/ios
-          xcodebuild archive -project Aerdrom.xcodeproj -scheme Aerdrom -sdk iphoneos -configuration Release -archivePath build/Aerdrom.xcarchive CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" PROVISIONING_PROFILE_SPECIFIER=""
-          mkdir -p Payload
-          cp -r build/Aerdrom.xcarchive/Products/Applications/*.app Payload/
-          zip -r Aerdrom.ipa Payload/
-
-      - name: Upload IPA
-        uses: actions/upload-artifact@v4
-        with:
-          name: Aerdrom-iOS-IPA
-          path: workspace/build/ios/Aerdrom.ipa
+          echo "Здесь выполняется экспорт проекта Godot..."
+          # Например: godot --headless --export-debug "iOS" ./build/ios/project.ipa
