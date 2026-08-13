@@ -26,24 +26,22 @@ jobs:
           unzip -q templates.tpz
           mv templates/ios.zip "$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION_DIR}/ios.zip"
 
-      - name: Download Release Asset (Pure API Method)
+      - name: Download Release Asset (Universal Search)
         run: |
-          echo "Ищем aerdow1.0.zip в самом свежем релизе (включая черновики)..."
+          echo "Ищем aerdow1.0.zip во всех релизах (включая Pre-release)..."
           
-          # Получаем системную ссылку на скачивание файла напрямую из API GitHub
+          # Убрали ограничение [0], теперь поиск идет по массиву всех релизов .[].assets[]
           ASSET_URL=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             "https://api.github.com/repos/${{ github.repository }}/releases" | \
-            jq -r '.[0].assets[] | select(.name=="aerdow1.0.zip") | .url')
+            jq -r '.[].assets[]? | select(.name=="aerdow1.0.zip") | .url' | head -n 1)
             
           if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" == "null" ]; then
             echo "Критическая ошибка: Файл aerdow1.0.zip не найден ни в одном из релизов!"
-            echo "Убедитесь, что архив в релизах называется ровно aerdow1.0.zip"
             exit 1
           fi
           
-          echo "Файл обнаружен в базе! Начинаем скачивание..."
+          echo "Файл обнаружен! Начинаем скачивание..."
           
-          # Скачиваем бинарный файл по системной ссылке
           curl -L -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
                -H "Accept: application/octet-stream" \
                -o aerdow1.0.zip "$ASSET_URL"
