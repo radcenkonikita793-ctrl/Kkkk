@@ -28,17 +28,24 @@ jobs:
 
       - name: Download from Releases & Extract
         run: |
-          echo "Скачиваем Aerdow1.0.zip из релизов..."
+          echo "Получаем ссылку на релиз с авторизацией..."
+          API_URL="https://api.github.com/repos/${{ github.repository }}/releases/latest"
           
-          # Скачиваем файл по прямой ссылке на релиз без ограничений по размеру
-          curl -L -o project.zip "https://github.com/${{ github.repository }}/releases/latest/download/Aerdow1.0.zip"
+          # Вытаскиваем прямую ссылку на ассет через API с Bearer токеном
+          DOWNLOAD_URL=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "$API_URL" | grep -A 5 "Aerdow1.0.zip" | grep "browser_download_url" | cut -d '"' -f 4)
+          
+          if [ -z "$DOWNLOAD_URL" ]; then
+            DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/v1.0/Aerdow1.0.zip"
+          fi
+          
+          echo "Ссылка получена. Скачиваем файл..."
+          # Используем -L для обработки редиректов с сохранением авторизации через header
+          curl -L -s --header "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+               --header "Accept: application/octet-stream" \
+               "$DOWNLOAD_URL" -o project.zip
           
           echo "Информация о скачанном файле:"
           ls -lh project.zip
-          
-          echo "Первые байты файла (для проверки):"
-          head -c 50 project.zip || true
-          echo ""
 
           echo "Распаковываем архив..."
           mkdir -p raw_project
