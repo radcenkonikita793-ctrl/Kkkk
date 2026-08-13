@@ -26,32 +26,37 @@ jobs:
           unzip -q templates.tpz
           mv templates/ios.zip "$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION_DIR}/ios.zip"
 
-      - name: Download Project Archive from Release
+      - name: Download & Extract Project Archive
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Используем официальный GitHub API для безопасного и точного скачивания файла из релиза
-          DOWNLOAD_URL="https://api.github.com/repos/${{ github.repository }}/releases/assets/$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/${{ github.repository }}/releases/latest | grep -B 2 -A 2 "Aerdow1.0.zip" | grep "id" | head -n 1 | tr -d ' ,:\"id')"
-          
-          echo "Скачиваем архив..."
-          curl -L -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-               -H "Accept: application/octet-stream" \
-               -o project.zip "$DOWNLOAD_URL"
-          
-          # Если через API не подхватило ID, качаем по прямой ссылке с токеном
-          if [ ! -f project.zip ] || [ $(stat -f%z project.zip) -lt 100000000 ]; then
-            echo "Пробуем прямую ссылку..."
-            curl -L -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-                 -o project.zip "https://github.com/${{ github.repository }}/releases/download/v1.0/Aerdow1.0.zip"
+          echo "Скачиваем релиз через GitHub CLI..."
+          # gh release download автоматически находит и скачивает архив из последнего релиза
+          gh release download --pattern "*.zip" --clobber
+
+          # Находим имя скачанного архива
+          ZIP_FILE=$(ls *.zip | head -n 1)
+          echo "Скачан файл: $ZIP_FILE"
+
+          # Распаковываем во временную папку
+          mkdir -p raw_project
+          unzip -qo "$ZIP_FILE" -d raw_project/
+
+          # Создаем рабочую директорию
+          mkdir -p workspace
+
+          # Проверяем структуру: если файлы проекта внутри вложенной папки — извлекаем всё оттуда
+          if [ -f raw_project/project.godot ]; then
+            echo "Проект расположен в корне архива"
+            cp -R raw_project/* workspace/
+          else
+            echo "Проект находится во вложенной папке архива, извлекаем всё..."
+            INNER_DIR=$(find raw_project -maxdepth 2 -name "project.godot" -exec dirname {} \;)
+            cp -R "$INNER_DIR"/* workspace/
           fi
-          
-          if [ ! -f project.zip ] || [ $(stat -f%z project.zip) -lt 100000000 ]; then
-            echo "Ошибка: файл не скачался или весит меньше 100 МБ!"
-            ls -lh project.zip
-            exit 1
-          fi
-          
-          echo "Распаковываем архив весом 116 МБ..."
-          mkdir workspace
-          unzip -qo project.zip -d workspace/
+
+          echo "Содержимое папки workspace:"
+          ls -la workspace/
 
       - name: Export Xcode Project
         run: |
