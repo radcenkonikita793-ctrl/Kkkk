@@ -28,7 +28,7 @@ jobs:
 
       - name: Download Project Archive from Release
         run: |
-          DOWNLOAD_URL="ТУТ_ВСТАВЬТЕ_ВАШУ_ССЫЛКУ_ИЗ_РЕЛИЗОВ"
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/v1.0/Aerdow1.0.zip"
           
           echo "Скачиваем по ссылке: $DOWNLOAD_URL"
           curl -L -o project.zip "$DOWNLOAD_URL"
