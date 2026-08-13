@@ -1,0 +1,56 @@
+name: Build iOS IPA from Release
+
+on:
+  workflow_dispatch:
+
+env:
+  GODOT_VERSION: "4.3-stable"
+  GODOT_VERSION_DIR: "4.3.stable"
+
+jobs:
+  build-unsigned-ipa:
+    name: Build iOS IPA
+    runs-on: macos-14
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Godot & Templates
+        run: |
+          curl -L -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_macos.universal.zip"
+          unzip -q godot.zip
+          mv Godot.app /Applications/Godot.app
+          
+          mkdir -p "$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION_DIR}"
+          curl -L -o templates.tpz "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_export_templates.tpz"
+          unzip -q templates.tpz
+          mv templates/ios.zip "$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION_DIR}/ios.zip"
+
+      - name: Download Project from Latest Release
+        run: |
+          # Автоматически скачивает ваш aerdow1.0.zip из последнего релиза
+          curl -L -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            $(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}/releases/latest | grep "browser_download_url" | cut -d '"' -f 4) \
+            -o project.zip
+          mkdir workspace
+          unzip -qo project.zip -d workspace/
+
+      - name: Export Xcode Project
+        run: |
+          mkdir -p workspace/build/ios
+          /Applications/Godot.app/Contents/MacOS/Godot --path workspace --headless --export-release "iOS" "$PWD/workspace/build/ios/Aerdrom.xcodeproj"
+
+      - name: Build IPA
+        run: |
+          cd workspace/build/ios
+          xcodebuild archive -project Aerdrom.xcodeproj -scheme Aerdrom -sdk iphoneos -configuration Release -archivePath build/Aerdrom.xcarchive CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" PROVISIONING_PROFILE_SPECIFIER=""
+          mkdir -p Payload
+          cp -r build/Aerdrom.xcarchive/Products/Applications/*.app Payload/
+          zip -r Aerdrom.ipa Payload/
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aerdrom-iOS-IPA
+          path: workspace/build/ios/Aerdrom.ipa
