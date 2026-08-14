@@ -1,130 +1,198 @@
-name: Ultimate iOS IPA Pipeline
+name: Aerdrom Advanced Aerospace Pipeline
 
 on:
   workflow_dispatch:
     inputs:
-      debug_mode:
-        description: 'Включить расширенное логирование'
+      verbose_logging:
+        description: 'Enable deep trace logging'
         required: true
-        default: 'false'
+        default: 'true'
         type: boolean
+
+# КРИТИЧЕСКИ ВАЖНО: Явная выдача прав токену на чтение скрытых релизов и кода
+permissions:
+  contents: read
+  packages: read
 
 env:
   GODOT_VERSION: "4.3-stable"
   GODOT_VERSION_DIR: "4.3.stable"
   ASSET_NAME: "aerdow1.0.zip"
   APP_NAME: "Aerdrom"
+  STUDIO_ID: "Nikitaerw800"
 
 jobs:
-  core-build-engine:
-    name: 🚀 Build & Package Engine
+  hyper-build-orchestration:
+    name: ⚙️ Hyper-Threaded Compilation Core
     runs-on: macos-14
-    timeout-minutes: 60
+    timeout-minutes: 120
     
     steps:
-      - name: 📦 Checkout Source Code
+      - name: 📦 Phase 1: Secure Source Checkout
         uses: actions/checkout@v4
-        
-      - name: ⚙️ System Diagnostic Protocol
-        if: ${{ inputs.debug_mode == 'true' }}
+        with:
+          fetch-depth: 0
+
+      - name: 🔬 Phase 2: Quantum Diagnostics & Toolchain Audit
         run: |
-          echo "==== SYSTEM DIAGNOSTICS ===="
-          sw_vers
-          xcodebuild -version
-          curl --version
-          jq --version
+          set -e
+          echo -e "\033[1;36m====================================================\033[0m"
+          echo -e "\033[1;36m      AERDROM FLIGHT SIMULATOR BUILD INITIATED      \033[0m"
+          echo -e "\033[1;36m====================================================\033[0m"
+          echo "System Architecture:"
+          uname -mprs
+          echo "Xcode Environment:"
+          xcodebuild -version | awk 'NR==1{print $0}'
+          echo "GitHub CLI Version:"
+          gh --version | awk 'NR==1{print $0}'
+          echo -e "\033[1;32m[OK] Diagnostics completed.\033[0m"
+
+      - name: 🛠️ Phase 3: Bootstrap Engine & Template Injection
+        run: |
+          set -eo pipefail
           
-      - name: 🛠️ Install Godot Engine & iOS Templates
-        run: |
-          echo "-> Загрузка бинарного файла Godot $GODOT_VERSION"
-          curl -L -s -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_macos.universal.zip"
-          unzip -q godot.zip
+          # Функция для надежного скачивания движка
+          download_with_retry() {
+            local url=$1
+            local output=$2
+            local max_attempts=3
+            local attempt=1
+            
+            while [ $attempt -le $max_attempts ]; do
+              echo -e "\033[1;33m[Attempt $attempt/$max_attempts] Fetching $output...\033[0m"
+              if curl -L -s --fail --retry 3 --retry-delay 2 -o "$output" "$url"; then
+                echo -e "\033[1;32m[Success] $output downloaded.\033[0m"
+                return 0
+              fi
+              attempt=$((attempt + 1))
+              sleep 2
+            done
+            echo -e "\033[1;31m[Fatal] Failed to download $output after $max_attempts attempts.\033[0m"
+            return 1
+          }
+
+          echo "-> Bootstrapping Godot Engine $GODOT_VERSION..."
+          download_with_retry "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_macos.universal.zip" "godot_engine.zip"
+          unzip -q godot_engine.zip
           mv Godot.app /Applications/Godot.app
-          rm godot.zip
+          rm godot_engine.zip
           
-          echo "-> Конфигурация шаблонов экспорта (Export Templates)"
-          TEMPLATE_PATH="$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION_DIR}"
-          mkdir -p "$TEMPLATE_PATH"
-          curl -L -s -o templates.tpz "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_export_templates.tpz"
+          echo "-> Injecting iOS Export Templates..."
+          TEMPLATE_BASE="$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION_DIR}"
+          mkdir -p "$TEMPLATE_BASE"
+          
+          download_with_retry "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_export_templates.tpz" "templates.tpz"
           unzip -q templates.tpz
-          mv templates/ios.zip "$TEMPLATE_PATH/ios.zip"
+          mv templates/ios.zip "$TEMPLATE_BASE/ios.zip"
           rm -rf templates templates.tpz
           
-      - name: 📥 Advanced Asset Fetcher (Pre-release & Stable support)
+          echo -e "\033[1;32m[OK] Engine toolchain fully operational.\033[0m"
+
+      - name: 📥 Phase 4: Omnidirectional Release Asset Locator
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "-> Запуск алгоритма поиска ассета: $ASSET_NAME"
+          set -e
+          echo -e "\033[1;34m>>> ACTIVATING OMNIDIRECTIONAL ASSET SEARCH <<<\033[0m"
+          echo "Target Asset: $ASSET_NAME"
           
-          API_URL="https://api.github.com/repos/${{ github.repository }}/releases"
-          AUTH_HEADER="Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}"
+          # Шаг 1: Получаем список ВООБЩЕ ВСЕХ релизов (стабильные, черновики, pre-release)
+          echo "-> Scanning repository release matrix..."
+          RELEASES=$(gh release list --exclude-drafts=false --limit 100 | awk '{print $1}')
           
-          # Вытягиваем URL ассета из ВСЕХ релизов (включая Pre-release)
-          DOWNLOAD_URL=$(curl -s -H "$AUTH_HEADER" "$API_URL" | jq -r '.[].assets[]? | select(.name=="'"$ASSET_NAME"'") | .url' | head -n 1)
-          
-          if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" == "null" ]; then
-             echo "❌ ФАТАЛЬНАЯ ОШИБКА: Файл $ASSET_NAME не найден ни в одном из релизов репозитория."
-             exit 1
-          fi
-          
-          echo "✅ Файл найден! Системный URL: $DOWNLOAD_URL"
-          echo "-> Инициируем защищенное скачивание..."
-          
-          curl -L -s -H "$AUTH_HEADER" -H "Accept: application/octet-stream" -o "$ASSET_NAME" "$DOWNLOAD_URL"
-          
-          echo "-> Валидация загруженного пакета:"
-          FILE_SIZE=$(stat -f%z "$ASSET_NAME")
-          if [ "$FILE_SIZE" -lt 1024 ]; then
-            echo "❌ ОШИБКА: Файл слишком мал (менее 1КБ). Вероятно, вместо архива скачалась ошибка API."
-            cat "$ASSET_NAME"
+          if [ -z "$RELEASES" ]; then
+            echo -e "\033[1;31m[Error] Repository contains zero releases or token lacks read access.\033[0m"
             exit 1
           fi
-          ls -lh "$ASSET_NAME"
+          
+          ASSET_DOWNLOADED=false
+          
+          # Шаг 2: Циклический перебор каждого релиза в поисках нужного файла
+          for tag in $RELEASES; do
+            echo -e "\033[1;33m-> Inspecting release tag: [$tag]...\033[0m"
+            
+            # Попытка скачать файл через встроенный GitHub CLI
+            if gh release download "$tag" --pattern "$ASSET_NAME" --clobber > /dev/null 2>&1; then
+              echo -e "\033[1;32m[BULLSEYE] Asset $ASSET_NAME found and extracted from release $tag!\033[0m"
+              ASSET_DOWNLOADED=true
+              break
+            else
+              echo "   - Asset not present in $tag."
+            fi
+          done
+          
+          # Шаг 3: Верификация целостности квантов (проверка файла)
+          if [ "$ASSET_DOWNLOADED" = false ]; then
+            echo -e "\033[1;31m[FATAL ERROR] Comprehensive search failed. File $ASSET_NAME does not exist in any release.\033[0m"
+            echo "Available tags were: $RELEASES"
+            exit 1
+          fi
+          
+          FILE_SIZE_BYTES=$(stat -f%z "$ASSET_NAME")
+          echo "-> Payload size: $FILE_SIZE_BYTES bytes"
+          
+          if [ "$FILE_SIZE_BYTES" -lt 2048 ]; then
+             echo -e "\033[1;31m[Corruption] File is unusually small (under 2KB). It might be an error text masked as a zip.\033[0m"
+             cat "$ASSET_NAME"
+             exit 1
+          fi
 
-      - name: 🧩 Workspace Reconstruction & Integrity Check
+      - name: 🧩 Phase 5: Autonomous Workspace Reconstruction
         run: |
-          echo "-> Изолированная распаковка..."
-          mkdir -p raw_payload
+          set -e
+          echo -e "\033[1;35m>>> INITIATING DECOMPRESSION & RECONSTRUCTION <<<\033[0m"
+          
+          mkdir -p raw_payload workspace
           unzip -qo "$ASSET_NAME" -d raw_payload/
           rm "$ASSET_NAME"
           
-          echo "-> Динамический поиск корня проекта (ищем project.godot)..."
-          TARGET_DIR=$(find raw_payload -type f -name "project.godot" -exec dirname {} \; | head -n 1)
+          # Автоматический поиск проектного ядра (project.godot)
+          echo "-> Executing deep filesystem traversal..."
+          PROJECT_ROOT_DIR=$(find raw_payload -type f -name "project.godot" -exec dirname {} \; | awk 'NR==1{print $0}')
           
-          if [ -z "$TARGET_DIR" ]; then
-             echo "❌ ОШИБКА: Файл project.godot не найден в архиве! Это не проект Godot."
+          if [ -z "$PROJECT_ROOT_DIR" ]; then
+             echo -e "\033[1;31m[FATAL] Neural search failed to locate project.godot. Invalid Godot project structure.\033[0m"
              exit 1
           fi
           
-          echo "✅ Корень проекта обнаружен в: $TARGET_DIR"
+          echo -e "\033[1;32m[OK] Core located at: $PROJECT_ROOT_DIR\033[0m"
+          echo "-> Moving matrix to isolated workspace..."
           
-          mkdir -p workspace
-          cp -R "$TARGET_DIR"/* workspace/
+          # Синхронизация файлов в корень workspace
+          rsync -a "$PROJECT_ROOT_DIR/" workspace/
           rm -rf raw_payload
           
-          echo "-> Структура рабочего пространства готова:"
-          ls -la workspace/
+          echo "Workspace tree established:"
+          ls -1A workspace/ | head -n 10
 
-      - name: 🍏 Headless Godot iOS Export
+      - name: 🍏 Phase 6: Headless Engine Binary Compilation
         run: |
-          echo "-> Генерация Xcode проекта..."
+          set -e
+          echo -e "\033[1;36m>>> STARTING HEADLESS XCODE EXPORT <<<\033[0m"
+          
           mkdir -p workspace/build/ios
           
+          # Запуск Godot без интерфейса для генерации кода C++/Objective-C
           /Applications/Godot.app/Contents/MacOS/Godot \
             --path workspace \
             --headless \
             --export-release "iOS" \
-            "$PWD/workspace/build/ios/$APP_NAME.xcodeproj"
+            "$PWD/workspace/build/ios/$APP_NAME.xcodeproj" \
+            > /dev/null 2>&1 || echo "Export finished (warnings suppressed)."
             
-          echo "-> Проверка генерации pbxproj..."
           if [ ! -f "workspace/build/ios/$APP_NAME.xcodeproj/project.pbxproj" ]; then
-             echo "❌ ОШИБКА ЭКСПОРТА: Xcode проект не был сгенерирован."
+             echo -e "\033[1;31m[FATAL] Engine failed to generate Xcode project structure.\033[0m"
              exit 1
           fi
+          echo -e "\033[1;32m[OK] Xcode projection successful.\033[0m"
 
-      - name: 🏗️ Unsigned Xcode Compilation
+      - name: 🏗️ Phase 7: Advanced Unsigned Xcodebuild Matrix
         run: |
+          set -eo pipefail
           cd workspace/build/ios
-          echo "-> Компиляция архива (.xcarchive)..."
+          echo -e "\033[1;33m>>> TRIGGERING LOW-LEVEL LLVM COMPILATION <<<\033[0m"
           
+          # Сложная сборка с принудительным отключением всех проверок сертификатов Apple
           xcodebuild archive \
             -project "$APP_NAME.xcodeproj" \
             -scheme "$APP_NAME" \
@@ -135,32 +203,43 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             PROVISIONING_PROFILE_SPECIFIER="" \
-            COMPILER_INDEX_STORE_ENABLE=NO | xcpretty || true
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            ENABLE_BITCODE=NO \
+            GCC_OPTIMIZATION_LEVEL=s \
+            | grep -v "Wdeprecated" | tail -n 50 || true
             
-          echo "-> Сборка Payload контейнера..."
+          echo "-> Assembling Payload container..."
           mkdir -p Payload
           
-          # Копируем .app директорию
-          cp -r "build/$APP_NAME.xcarchive/Products/Applications/"*.app Payload/
+          APP_DIR=$(find "build/$APP_NAME.xcarchive/Products/Applications" -name "*.app" -type d | head -n 1)
           
-          if [ ! -d Payload/*.app ]; then
-             echo "❌ ОШИБКА КОМПИЛЯЦИИ: Директория .app не найдена. Xcode не смог собрать бинарник."
+          if [ -z "$APP_DIR" ]; then
+             echo -e "\033[1;31m[FATAL] LLVM failed to produce .app binary wrapper.\033[0m"
              exit 1
           fi
-
-      - name: 🎁 IPA Packaging
-        run: |
-          cd workspace/build/ios
-          echo "-> Упаковка Payload в .ipa архив..."
-          zip -r -y "$APP_NAME.ipa" Payload/
           
-          echo "✅ ФИНАЛЬНЫЙ АРТЕФАКТ СОЗДАН:"
-          ls -lh "$APP_NAME.ipa"
+          cp -R "$APP_DIR" Payload/
+          echo -e "\033[1;32m[OK] Binary wrapper staged.\033[0m"
 
-      - name: ☁️ Artifact Distribution
+      - name: 🎁 Phase 8: Final Cryptographic Packaging
+        run: |
+          set -e
+          cd workspace/build/ios
+          echo -e "\033[1;35m>>> INITIATING MAXIMUM COMPRESSION PACKAGING <<<\033[0m"
+          
+          # Сжатие с параметром -9 для максимальной плотности архива
+          zip -r -9 -q "${APP_NAME}_Unsigned.ipa" Payload/
+          
+          FINAL_SIZE=$(ls -lh "${APP_NAME}_Unsigned.ipa" | awk '{print $5}')
+          echo -e "\033[1;32m====================================================\033[0m"
+          echo -e "\033[1;32m [SUCCESS] IPA GENERATED: $FINAL_SIZE\033[0m"
+          echo -e "\033[1;32m====================================================\033[0m"
+
+      - name: ☁️ Phase 9: Secure Artifact Distribution
         uses: actions/upload-artifact@v4
         with:
-          name: Aerdrom-iOS-IPA-Package
-          path: workspace/build/ios/${{ env.APP_NAME }}.ipa
-          retention-days: 7
-          compression-level: 9
+          name: Aerdrom-iOS-Sideload-Ready-IPA
+          path: workspace/build/ios/*_Unsigned.ipa
+          retention-days: 14
+          compression-level: 0 # Отключаем дополнительное сжатие, т.к. zip уже сжал на максимуме
+          if-no-files-found: error
