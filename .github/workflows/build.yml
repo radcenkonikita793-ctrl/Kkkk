@@ -1,87 +1,166 @@
-name: Build iOS IPA
+name: Ultimate iOS IPA Pipeline
 
 on:
   workflow_dispatch:
+    inputs:
+      debug_mode:
+        description: 'Включить расширенное логирование'
+        required: true
+        default: 'false'
+        type: boolean
 
 env:
   GODOT_VERSION: "4.3-stable"
   GODOT_VERSION_DIR: "4.3.stable"
+  ASSET_NAME: "aerdow1.0.zip"
+  APP_NAME: "Aerdrom"
 
 jobs:
-  build-unsigned-ipa:
-    name: Build iOS IPA
+  core-build-engine:
+    name: 🚀 Build & Package Engine
     runs-on: macos-14
+    timeout-minutes: 60
+    
     steps:
-      - name: Checkout Repository
+      - name: 📦 Checkout Source Code
         uses: actions/checkout@v4
-
-      - name: Install Godot & Templates
+        
+      - name: ⚙️ System Diagnostic Protocol
+        if: ${{ inputs.debug_mode == 'true' }}
         run: |
-          curl -L -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_macos.universal.zip"
+          echo "==== SYSTEM DIAGNOSTICS ===="
+          sw_vers
+          xcodebuild -version
+          curl --version
+          jq --version
+          
+      - name: 🛠️ Install Godot Engine & iOS Templates
+        run: |
+          echo "-> Загрузка бинарного файла Godot $GODOT_VERSION"
+          curl -L -s -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_macos.universal.zip"
           unzip -q godot.zip
           mv Godot.app /Applications/Godot.app
+          rm godot.zip
           
-          mkdir -p "$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION_DIR}"
-          curl -L -o templates.tpz "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_export_templates.tpz"
+          echo "-> Конфигурация шаблонов экспорта (Export Templates)"
+          TEMPLATE_PATH="$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION_DIR}"
+          mkdir -p "$TEMPLATE_PATH"
+          curl -L -s -o templates.tpz "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_export_templates.tpz"
           unzip -q templates.tpz
-          mv templates/ios.zip "$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION_DIR}/ios.zip"
-
-      - name: Download Release Asset (Universal Search)
-        run: |
-          echo "Ищем aerdow1.0.zip во всех релизах (включая Pre-release)..."
+          mv templates/ios.zip "$TEMPLATE_PATH/ios.zip"
+          rm -rf templates templates.tpz
           
-          # Убрали ограничение [0], теперь поиск идет по массиву всех релизов .[].assets[]
-          ASSET_URL=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/releases" | \
-            jq -r '.[].assets[]? | select(.name=="aerdow1.0.zip") | .url' | head -n 1)
-            
-          if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" == "null" ]; then
-            echo "Критическая ошибка: Файл aerdow1.0.zip не найден ни в одном из релизов!"
+      - name: 📥 Advanced Asset Fetcher (Pre-release & Stable support)
+        run: |
+          echo "-> Запуск алгоритма поиска ассета: $ASSET_NAME"
+          
+          API_URL="https://api.github.com/repos/${{ github.repository }}/releases"
+          AUTH_HEADER="Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}"
+          
+          # Вытягиваем URL ассета из ВСЕХ релизов (включая Pre-release)
+          DOWNLOAD_URL=$(curl -s -H "$AUTH_HEADER" "$API_URL" | jq -r '.[].assets[]? | select(.name=="'"$ASSET_NAME"'") | .url' | head -n 1)
+          
+          if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" == "null" ]; then
+             echo "❌ ФАТАЛЬНАЯ ОШИБКА: Файл $ASSET_NAME не найден ни в одном из релизов репозитория."
+             exit 1
+          fi
+          
+          echo "✅ Файл найден! Системный URL: $DOWNLOAD_URL"
+          echo "-> Инициируем защищенное скачивание..."
+          
+          curl -L -s -H "$AUTH_HEADER" -H "Accept: application/octet-stream" -o "$ASSET_NAME" "$DOWNLOAD_URL"
+          
+          echo "-> Валидация загруженного пакета:"
+          FILE_SIZE=$(stat -f%z "$ASSET_NAME")
+          if [ "$FILE_SIZE" -lt 1024 ]; then
+            echo "❌ ОШИБКА: Файл слишком мал (менее 1КБ). Вероятно, вместо архива скачалась ошибка API."
+            cat "$ASSET_NAME"
             exit 1
           fi
-          
-          echo "Файл обнаружен! Начинаем скачивание..."
-          
-          curl -L -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-               -H "Accept: application/octet-stream" \
-               -o aerdow1.0.zip "$ASSET_URL"
-          
-          echo "Информация о скачанном файле:"
-          ls -lh aerdow1.0.zip
+          ls -lh "$ASSET_NAME"
 
-      - name: Extract Project Archive
+      - name: 🧩 Workspace Reconstruction & Integrity Check
         run: |
-          echo "Распаковываем архив..."
-          mkdir -p raw_project
-          unzip -qo aerdow1.0.zip -d raw_project/
-
-          mkdir -p workspace
-
-          if [ -f raw_project/project.godot ]; then
-            cp -R raw_project/* workspace/
-          else
-            INNER_DIR=$(find raw_project -maxdepth 2 -name "project.godot" -exec dirname {} \;)
-            cp -R "$INNER_DIR"/* workspace/
+          echo "-> Изолированная распаковка..."
+          mkdir -p raw_payload
+          unzip -qo "$ASSET_NAME" -d raw_payload/
+          rm "$ASSET_NAME"
+          
+          echo "-> Динамический поиск корня проекта (ищем project.godot)..."
+          TARGET_DIR=$(find raw_payload -type f -name "project.godot" -exec dirname {} \; | head -n 1)
+          
+          if [ -z "$TARGET_DIR" ]; then
+             echo "❌ ОШИБКА: Файл project.godot не найден в архиве! Это не проект Godot."
+             exit 1
           fi
-
-          echo "Готово! Содержимое workspace:"
+          
+          echo "✅ Корень проекта обнаружен в: $TARGET_DIR"
+          
+          mkdir -p workspace
+          cp -R "$TARGET_DIR"/* workspace/
+          rm -rf raw_payload
+          
+          echo "-> Структура рабочего пространства готова:"
           ls -la workspace/
 
-      - name: Export Xcode Project
+      - name: 🍏 Headless Godot iOS Export
         run: |
+          echo "-> Генерация Xcode проекта..."
           mkdir -p workspace/build/ios
-          /Applications/Godot.app/Contents/MacOS/Godot --path workspace --headless --export-release "iOS" "$PWD/workspace/build/ios/Aerdrom.xcodeproj"
+          
+          /Applications/Godot.app/Contents/MacOS/Godot \
+            --path workspace \
+            --headless \
+            --export-release "iOS" \
+            "$PWD/workspace/build/ios/$APP_NAME.xcodeproj"
+            
+          echo "-> Проверка генерации pbxproj..."
+          if [ ! -f "workspace/build/ios/$APP_NAME.xcodeproj/project.pbxproj" ]; then
+             echo "❌ ОШИБКА ЭКСПОРТА: Xcode проект не был сгенерирован."
+             exit 1
+          fi
 
-      - name: Build IPA
+      - name: 🏗️ Unsigned Xcode Compilation
         run: |
           cd workspace/build/ios
-          xcodebuild archive -project Aerdrom.xcodeproj -scheme Aerdrom -sdk iphoneos -configuration Release -archivePath build/Aerdrom.xcarchive CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" PROVISIONING_PROFILE_SPECIFIER=""
+          echo "-> Компиляция архива (.xcarchive)..."
+          
+          xcodebuild archive \
+            -project "$APP_NAME.xcodeproj" \
+            -scheme "$APP_NAME" \
+            -sdk iphoneos \
+            -configuration Release \
+            -archivePath "build/$APP_NAME.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            COMPILER_INDEX_STORE_ENABLE=NO | xcpretty || true
+            
+          echo "-> Сборка Payload контейнера..."
           mkdir -p Payload
-          cp -r build/Aerdrom.xcarchive/Products/Applications/*.app Payload/
-          zip -r Aerdrom.ipa Payload/
+          
+          # Копируем .app директорию
+          cp -r "build/$APP_NAME.xcarchive/Products/Applications/"*.app Payload/
+          
+          if [ ! -d Payload/*.app ]; then
+             echo "❌ ОШИБКА КОМПИЛЯЦИИ: Директория .app не найдена. Xcode не смог собрать бинарник."
+             exit 1
+          fi
 
-      - name: Upload IPA
+      - name: 🎁 IPA Packaging
+        run: |
+          cd workspace/build/ios
+          echo "-> Упаковка Payload в .ipa архив..."
+          zip -r -y "$APP_NAME.ipa" Payload/
+          
+          echo "✅ ФИНАЛЬНЫЙ АРТЕФАКТ СОЗДАН:"
+          ls -lh "$APP_NAME.ipa"
+
+      - name: ☁️ Artifact Distribution
         uses: actions/upload-artifact@v4
         with:
-          name: Aerdrom-iOS-IPA
-          path: workspace/build/ios/Aerdrom.ipa
+          name: Aerdrom-iOS-IPA-Package
+          path: workspace/build/ios/${{ env.APP_NAME }}.ipa
+          retention-days: 7
+          compression-level: 9
